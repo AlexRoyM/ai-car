@@ -14,7 +14,7 @@ def image_to_base64(image_path):
         return base64.b64encode(image_file.read()).decode('utf-8')
 
 def send_to_lm_studio(messages_history, tools=None):
-    """向LM Studio发送请求"""
+    # ... (此函数无变化)
     payload = {
         "model": config.MODEL_NAME,
         "messages": messages_history,
@@ -36,7 +36,12 @@ def send_to_lm_studio(messages_history, tools=None):
         return {"error": f"调用大模型API失败: {e}"}
 
 def process_message_and_get_reply(prompt, image_filepath=None, image_webpath=None, autonomous_mode=False):
-    """处理用户输入，与LLM交互并返回结果的完整流程"""
+    """
+    处理用户输入，与LLM交互，并通过WebSocket发送更新。
+    此函数现在不再直接返回JSON给HTTP请求，而是通过socketio发送事件。
+    """
+    from main import socketio # 导入socketio实例
+
     final_prompt = prompt
 
     if autonomous_mode and image_filepath:
@@ -50,7 +55,7 @@ def process_message_and_get_reply(prompt, image_filepath=None, image_webpath=Non
         final_prompt = system_like_instruction + prompt
         print(f"视觉自主模式 - 增强后的指令: {final_prompt}")
 
-    # 准备用户消息
+    # 准备用户消息并立即发送到前端
     current_user_content = [{"type": "text", "text": final_prompt}]
     if image_filepath:
         base64_image = image_to_base64(image_filepath)
@@ -59,30 +64,30 @@ def process_message_and_get_reply(prompt, image_filepath=None, image_webpath=Non
     user_message = {"role": "user", "content": current_user_content}
     if image_webpath:
         user_message['image_path'] = image_webpath
+        
     state.conversation_history.append(user_message)
+    socketio.emit('new_message', user_message)
+    socketio.emit('status_update', {'message': '已收到，正在思考中...'})
 
-    # 根据模式决定是否提供工具
     tools_for_llm = robot_control.CAR_TOOLS if autonomous_mode and state.ros_enabled else None
     
-    # 发送给LLM
     response_json = send_to_lm_studio(state.conversation_history, tools=tools_for_llm)
 
     if "error" in response_json:
-        state.conversation_history.pop() # 如果出错，移除刚刚添加的用户消息
-        return {"history": state.conversation_history, "is_muted": state.is_muted, "error": response_json["error"]}
+        state.conversation_history.pop() # 移除失败的用户消息
+        error_msg = response_json["error"]
+        socketio.emit('error_message', {'error': error_msg})
+        socketio.emit('status_update', {'message': ''}) # 清除状态
+        return
 
     message = response_json.get('choices', [{}])[0].get('message', {})
-    if not message:
-        # 如果 message 为空字典，说明API返回结构异常，构造一个错误信息
-        error_msg = "调用大模型成功，但返回数据结构异常。"
-        print(f"API Response Error: {response_json}")
-        # 稳妥起见，不把用户消息和空回复计入历史
-        state.conversation_history.pop()
-        return {"history": state.conversation_history, "is_muted": state.is_muted, "error": error_msg}
     
-    # 处理工具调用
     if message.get("tool_calls"):
+        socketio.emit('status_update', {'message': '正在解析指令...'})
         state.conversation_history.append(message)
+        # 将LLM的工具调用请求也发给前端，让UI可以显示“正在执行”
+        socketio.emit('new_message', message) 
+        
         tool_call = message["tool_calls"][0]
         function_name = tool_call['function']['name']
         
@@ -90,32 +95,29 @@ def process_message_and_get_reply(prompt, image_filepath=None, image_webpath=Non
             try:
                 arguments = json.loads(tool_call['function']['arguments'])
                 function_to_call = robot_control.available_functions[function_name]
+                # 函数内部会通过socketio发送实时状态
                 function_response = function_to_call(**arguments)
             except Exception as e:
                 function_response = f"错误: 执行工具时发生异常: {e}"
         else:
              function_response = f"错误: 模型请求了未知的工具 '{function_name}'"
 
-        # 将工具执行结果加入历史记录
         state.conversation_history.append({
             "role": "tool", "tool_call_id": tool_call['id'],
             "name": function_name, "content": function_response,
         })
         
-        # 再次调用LLM，让它根据工具结果生成最终回复
         final_response_json = send_to_lm_studio(state.conversation_history, tools=None)
         reply_text = final_response_json.get('choices', [{}])[0].get('message', {}).get('content', "工具执行完毕，但在生成最终回复时出错。")
     else:
-        # 没有工具调用，直接获取回复
         reply_text = message.get('content', '我不知道该说些什么。')
 
     # 处理最终回复
+    socketio.emit('status_update', {'message': ''}) # 清空状态栏
     if reply_text and not reply_text.startswith("错误"):
         assistant_message = {"role": "assistant", "content": reply_text}
         state.conversation_history.append(assistant_message)
+        socketio.emit('new_message', assistant_message)
+        
         if not state.is_muted:
-            # 启动语音播放线程
-            state.tts_thread = threading.Thread(target=speak_text_threaded, args=(reply_text,))
-            state.tts_thread.start()
-    
-    return {"history": state.conversation_history, "is_muted": state.is_muted}
+            state.tts_thread = socketio.start_background_task(speak_text_threaded, reply_text)
