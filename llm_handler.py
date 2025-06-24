@@ -71,7 +71,14 @@ def process_message_and_get_reply(prompt, image_filepath=None, image_webpath=Non
         state.conversation_history.pop() # 如果出错，移除刚刚添加的用户消息
         return {"history": state.conversation_history, "is_muted": state.is_muted, "error": response_json["error"]}
 
-    message = response_json['choices'][0]['message']
+    message = response_json.get('choices', [{}])[0].get('message', {})
+    if not message:
+        # 如果 message 为空字典，说明API返回结构异常，构造一个错误信息
+        error_msg = "调用大模型成功，但返回数据结构异常。"
+        print(f"API Response Error: {response_json}")
+        # 稳妥起见，不把用户消息和空回复计入历史
+        state.conversation_history.pop()
+        return {"history": state.conversation_history, "is_muted": state.is_muted, "error": error_msg}
     
     # 处理工具调用
     if message.get("tool_calls"):

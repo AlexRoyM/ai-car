@@ -5,12 +5,13 @@ import os
 import time
 import config
 import state
+import uuid
 
 def speak_text_threaded(text):
     """在后台线程中生成并播放语音"""
+    session_dir = os.path.dirname(state.TEMP_AUDIO_PATH)
+    temp_audio_path = os.path.join(session_dir, f"tts_{uuid.uuid4()}.mp3")
     try:
-        # 使用 state 中定义的临时路径
-        temp_audio_path = state.TEMP_AUDIO_PATH
         if not temp_audio_path:
             print("错误: 临时音频路径未设置。")
             return
@@ -32,10 +33,10 @@ def speak_text_threaded(text):
         print(f"后台语音线程错误: {e}")
     finally:
         # 清理临时文件
-        if os.path.exists(state.TEMP_AUDIO_PATH):
+        if os.path.exists(temp_audio_path):
             try:
                 time.sleep(0.1)
-                os.remove(state.TEMP_AUDIO_PATH)
+                os.remove(temp_audio_path)
             except Exception as e:
                 print(f"删除临时音频文件失败: {e}")
 

@@ -4,6 +4,7 @@ import threading
 import signal
 import sys
 import json
+import time
 from flask import Flask, render_template, request, jsonify, Response
 from werkzeug.utils import secure_filename
 import pygame
@@ -114,7 +115,7 @@ def joy_callback(data):
 # --- Flask Routes ---
 @app.route('/')
 def index():
-    return render_template('index.html', history=state.conversation_history, is_muted=state.is_muted)
+    return render_template('index.html', history=state.conversation_history, is_muted=state.is_muted, slam_url=config.SLAM_PAGE_URL)
 
 @app.route('/send_message', methods=['POST'])
 def handle_send_message():
