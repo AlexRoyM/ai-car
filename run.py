@@ -16,5 +16,4 @@ if __name__ == '__main__':
     print("-----------------------------\n")
 
     # 运行Flask应用
-    # debug=False 和 use_reloader=False 在生产或稳定部署时是推荐的设置
     app.run(host='0.0.0.0', port=FLASK_PORT, debug=False, threaded=True, use_reloader=False)

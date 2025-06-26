@@ -2,7 +2,6 @@
 FLASK_PORT = 17958
 SLAM_PAGE_URL = "http://192.168.10.102:3000"
 # --- LM Studio API 与模型配置 ---
-# 如果将来换成OpenAI或其他API，只需修改这里
 LM_STUDIO_URL = "http://199.168.137.135:9568/v1/chat/completions"
 MODEL_NAME = "lmstudio-community/Qwen2.5-7B-Instruct-GGUF"
 MODEL_MAX_TOKENS = 4096

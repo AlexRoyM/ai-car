@@ -3,7 +3,7 @@ import time
 import config
 import state
 
-# ROS消息类型，按需导入
+# ROS消息类型
 try:
     import rospy
     from geometry_msgs.msg import Twist

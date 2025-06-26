@@ -9,7 +9,6 @@ from flask import Flask, render_template, request, jsonify, Response
 from werkzeug.utils import secure_filename
 import pygame
 
-# 导入自定义模块
 import config
 import state
 from camera_handler import Camera
