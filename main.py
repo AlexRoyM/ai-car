@@ -13,7 +13,13 @@ import config
 import state
 from camera_handler import Camera
 from voice_handler import stop_speech_playback
-from llm_handler import process_message_and_get_reply
+# 根据配置选择导入哪个处理器
+if config.LLM_PROVIDER == "OPENAI":
+    from openai_handler import process_message_and_get_reply_openai as process_message_and_get_reply
+    print("--- [模式] 当前使用 OpenAI API ---")
+else:
+    from llm_handler import process_message_and_get_reply
+    print("--- [模式] 当前使用 LM Studio ---")
 from robot_control import available_functions
 
 # --- ROS Integration ---
