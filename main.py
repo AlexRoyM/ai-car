@@ -12,6 +12,7 @@ import pygame
 import config
 import state
 from camera_handler import Camera
+from depth_camera_handler import DepthCamera
 from voice_handler import stop_speech_playback
 # 根据配置选择导入哪个处理器
 if config.LLM_PROVIDER == "OPENAI":
@@ -193,7 +194,15 @@ def initialize_app():
     # 初始化Pygame Mixer
     pygame.init()
     pygame.mixer.init()
-    
+
+    try:
+        state.depth_camera_handler = DepthCamera()
+    except Exception as e:
+        print(f"严重错误: 深度相机初始化失败: {e}。自主导航功能将不可用。")
+        state.depth_camera_handler = None
+        # 如果深度相机失败，确保 ros_enabled 也为 False
+        if hasattr(state, 'ros_enabled'):
+            state.ros_enabled = False
     # 初始化摄像头
     try:
         camera = Camera()
@@ -215,6 +224,8 @@ def initialize_app():
 def cleanup(sig, frame):
     """程序退出前的清理工作"""
     print("\n接收到关停信号 (Ctrl+C)... 正在清理资源...")
+    if state.depth_camera_handler:
+        state.depth_camera_handler.release()
     if camera:
         camera.release()
     if pygame.mixer.get_init():

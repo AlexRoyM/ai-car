@@ -18,5 +18,6 @@ joy_stop_tts_lock = threading.Lock()
 # --- ROS & 小车控制状态 ---
 # 将ROS相关对象放在这里，方便跨模块访问
 ros_enabled = False
+depth_camera_handler = None
 cmd_vel_pub = None
 car_control_lock = threading.Lock()

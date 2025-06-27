@@ -26,8 +26,8 @@ SELECTED_VOICE = VOICES['male']
 # --- 小车物理参数 ---
 MOVE_SPEED = 0.2
 ANGULAR_SPEED = 0.5
-MAX_MOVE_DISTANCE = 0.4   # 单次指令最大移动距离(米)
-MAX_TURN_ANGLE = 30.0     # 单次指令最大转向角度(度)
+MAX_MOVE_DISTANCE = 2.0   # 单次指令最大移动距离(米)
+MAX_TURN_ANGLE = 29.0     # 单次指令最大转向角度(度)
 
 
 # --- ROS 手柄按钮ID定义 ---
