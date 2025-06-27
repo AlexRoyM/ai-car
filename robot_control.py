@@ -70,7 +70,7 @@ def _turn_task(angle_degrees: float):
     angle_radians = math.radians(angle_degrees)
     duration = abs(angle_radians) / config.ANGULAR_SPEED
     twist_msg = Twist()
-    # 保持修复后的转向逻辑
+
     twist_msg.angular.z = -math.copysign(config.ANGULAR_SPEED, angle_radians)
     
     print(f"  - 执行转向: 角度={angle_degrees:.1f}°, 目标角速度={twist_msg.angular.z:.2f}rad/s, 持续时间={duration:.2f}s")

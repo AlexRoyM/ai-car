@@ -4,81 +4,55 @@ import openai
 import json
 import base64
 import threading
-import cv2
+import cv2 # 导入OpenCV来读取图片尺寸
 import config
 import state
 import robot_control
 from voice_handler import speak_text_threaded
+from PIL import Image, ImageDraw # 导入Pillow库用于图像绘制
 
 # 初始化 OpenAI 客户端
-# 如果 config.OPENAI_API_KEY 提供了值，则使用它，否则客户端会自动从环境变量读取
 client = openai.OpenAI(api_key=config.OPENAI_API_KEY, base_url=config.OPENAI_BASE_URL)
-LOCATE_OBJECT_TOOL = [
-    {
-        "type": "function",
-        "function": {
-            "name": "locate_object_in_image",
-            "description": "根据用户的自然语言描述，在图像中定位目标物体，并返回其中心点的像素坐标。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "object_description": {
-                        "type": "string",
-                        "description": "用户想要定位的物体的简短描述, 例如 '那个粉色的物体' 或 '左边的瓶子'。",
-                    },
-                    "center_x": {
-                        "type": "integer",
-                        "description": "识别出的物体边界框的中心点 x 坐标 (像素)。"
-                    },
-                    "center_y": {
-                        "type": "integer",
-                        "description": "识别出的物体边界框的中心点 y 坐标 (像素)。"
-                    }
-                },
-                "required": ["object_description", "center_x", "center_y"]
-            }
-        }
-    }
-]
+
 def image_to_base64(image_path):
     """将图片文件转换为Base64编码"""
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode('utf-8')
 
-def send_to_openai(messages_history, tools=None):
-    """向 OpenAI API 发送请求"""
+def send_to_openai_for_json(messages_history):
+    """向 OpenAI API 发送请求，并强制其返回JSON对象"""
     try:
-        # OpenAI 的工具选择逻辑与LM Studio不同，这里我们用 tool_choice="auto"
-        # 它会自动判断是否需要调用工具
+        # 核心修正：移除 tools 参数，仅使用 response_format 来获取JSON
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL_NAME,
             messages=messages_history,
-            tools=tools,
-            tool_choice="auto", 
-            temperature=config.MODEL_TEMPERATURE,
+            response_format={"type": "json_object"}, # 强制JSON输出
+            temperature=0.1, # 对于JSON输出，使用较低的温度以保证格式稳定
             max_tokens=config.MODEL_MAX_TOKENS,
         )
         return response
     except Exception as e:
-        print(f"OpenAI API 请求错误: {e}")
-        # 返回一个字典以保持与现有错误处理逻辑的兼容性
+        print(f"OpenAI API 请求错误 (JSON模式): {e}")
         return {"error": f"调用 OpenAI API 失败: {e}"}
 
 def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webpath=None, autonomous_mode=False):
     """处理用户输入，与OpenAI LLM交互并返回结果的完整流程"""
-    # 如果是带图像的自主模式，执行新的精确导航流程
+    # 仅在带图像的自主模式下，执行目标定位逻辑
     if autonomous_mode and image_filepath and state.depth_camera_handler:
-        print("--- 进入精确自主导航模式 ---")
+        print("--- 进入精确自主导航模式 (归一化坐标JSON模式) ---")
         
-        # 1. 准备给LLM的消息和指令
-        system_like_instruction = (
-            "你是一个AI小车的视觉分析助手。你的任务是严格按照用户的指令，在提供的图片中找到目标物体。"
-            "一旦找到，你必须且只能使用 `locate_object_in_image` 工具来返回该物体中心点的像素坐标 (center_x, center_y)。"
-            "不要进行任何对话、道歉或提供额外信息。直接调用工具即可。"
-            "例如，如果用户说 '靠近那个粉色的盒子'，你就找到粉色盒子并返回其坐标。"
+        # 1. 准备给LLM的指令，严格按照你提供的示例逻辑，要求返回归一化坐标
+        system_instruction = (
+            "你是一个AI小车的视觉定位助手。你的任务是分析图片和用户指令，并以JSON格式返回结果。"
+            "JSON对象必须包含一个名为'detections'的列表。列表中的每个对象都应包含一个'label'和一个'box_2d'。"
+            "'box_2d'是一个包含4个整数的列表，代表物体边界框的坐标，格式为 [ymin, xmin, ymax, xmax]，"
+            "并且所有坐标值都必须被归一化到 0-1000 的范围。"
+            "如果找到多个物体，请返回最符合用户描述的那一个。"
+            "不要输出任何其他文字或解释，只输出一个JSON对象。"
+            '例如: {"detections": [{"label": "红色物体", "box_2d": [100, 150, 800, 850]}]}'
         )
-        final_prompt = system_like_instruction + "\n\n用户指令是：" + prompt
-        
+        final_prompt = "用户指令是：" + prompt
+
         current_user_content = [{"type": "text", "text": final_prompt}]
         base64_image = image_to_base64(image_filepath)
         current_user_content.append({
@@ -86,58 +60,95 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
             "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
         })
         
-        user_message = {"role": "user", "content": current_user_content, "image_path": image_webpath}
-        state.conversation_history.append(user_message)
-
+        # 构建本次请求的消息历史
+        messages_for_locating = [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": current_user_content}
+        ]
+        
+        # 仅将用户消息存入完整历史记录
+        user_message_for_history = {"role": "user", "content": current_user_content, "image_path": image_webpath}
+        state.conversation_history.append(user_message_for_history)
+        
         # 2. 调用LLM进行物体定位
-        # 注意：这里我们只给LLM提供定位工具，而不是移动工具
-        temp_history_for_locating = state.conversation_history[-1:] # 只发送当前用户的指令
-        response = send_to_openai(temp_history_for_locating, tools=LOCATE_OBJECT_TOOL)
+        response = send_to_openai_for_json(messages_for_locating)
         
         if isinstance(response, dict) and "error" in response:
             state.conversation_history.pop()
             return {"history": state.conversation_history, "is_muted": state.is_muted, "error": response["error"]}
 
-        message = response.choices[0].message
+        # 3. 解析模型返回的JSON内容
+        try:
+            content_str = response.choices[0].message.content
+            print(f"LLM返回的原始JSON字符串: {content_str}")
+            data = json.loads(content_str)
+            
+            # 从返回结果中获取第一个检测到的物体
+            if not data.get("detections") or not isinstance(data["detections"], list) or len(data["detections"]) == 0:
+                 raise KeyError("模型返回的JSON中没有找到'detections'列表或列表为空。")
+            
+            item = data["detections"][0]
+            box_normalized = item.get("box_2d")
 
-        # 3. 处理LLM的工具调用结果
-        if message.tool_calls:
-            tool_call = message.tool_calls[0]
-            if tool_call.function.name == "locate_object_in_image":
+            # 4. **核心逻辑：反归一化坐标**
+            # 读取实际图片尺寸，用于坐标换算
+            image = cv2.imread(image_filepath)
+            height, width, _ = image.shape
+            print(f"--- [计算] 图片实际尺寸: 宽={width}, 高={height} ---")
+
+            if not box_normalized or len(box_normalized) != 4:
+                raise ValueError("JSON中'box_2d'格式不正确。")
+            
+            # [ymin, xmin, ymax, xmax]
+            y_min_norm, x_min_norm, y_max_norm, x_max_norm = box_normalized
+            
+            abs_x_min = (x_min_norm / 1000.0) * width
+            abs_y_min = (y_min_norm / 1000.0) * height
+            abs_x_max = (x_max_norm / 1000.0) * width
+            abs_y_max = (y_max_norm / 1000.0) * height
+
+            # 计算绝对像素坐标的中心点
+            u = int((abs_x_min + abs_x_max) / 2)
+            v = int((abs_y_min + abs_y_max) / 2)
+
+            print(f"--- [计算] 反归一化后, 目标中心点像素坐标: (u={u}, v={v}) ---")
+
+            # 5. [新增] 画框并保存图片的功能
+            if image_filepath:
                 try:
-                    args = json.loads(tool_call.function.arguments)
-                    u, v = args['center_x'], args['center_y']
-                    u, v = int(v * 0.48), int(u * 0.64)
-                    print(f"LLM成功定位到物体，中心点坐标: ({u}, {v})")
+                    pil_image = Image.open(image_filepath)
+                    draw = ImageDraw.Draw(pil_image)
+                    # 绘制反归一化后的边界框
+                    draw.rectangle([abs_x_min, abs_y_min, abs_x_max, abs_y_max], outline="lime", width=3)
+                    # 绘制中心点
+                    draw.ellipse((u - 5, v - 5, u + 5, v + 5), fill="red", outline="red")
                     
-                    # 4. 从深度相机获取精确数据
-                    coords = state.depth_camera_handler.get_distance_and_angle(u, v)
-                    
-                    if coords:
-                        # 5. 构建并执行移动指令
-                        distance_m = coords['distance_m']-0.2
-                        angle_deg = -coords['angle_deg']
-                        
-                        # 创建动作序列，先转向，再前进
-                        actions = [
-                            {"command": "turn", "value": angle_deg},
-                            {"command": "move_forward", "value": distance_m}
-                        ]
-                        
-                        # 调用小车控制函数
-                        result = robot_control.execute_sequence(actions)
-                        reply_text = f"好的，已定位到目标。正在执行移动指令: {result}"
-                        
-                    else:
-                        reply_text = "定位到了物体，但在获取它的深度信息时失败了，无法移动。"
+                    output_image_path = image_filepath.replace('.jpg', '_with_box.jpg')
+                    pil_image.save(output_image_path)
+                    print(f"--- [调试] 带边界框的图片已保存到: {output_image_path} ---")
+                except Exception as e:
+                    print(f"--- [错误] 绘制调试图片时出错: {e} ---")
 
-                except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    reply_text = f"模型返回的坐标格式有误，无法解析: {e}"
+            # 6. 从深度相机获取精确数据
+            coords = state.depth_camera_handler.get_distance_and_angle(u, v)
+            
+            if coords:
+                distance_m = coords['distance_m'] - 0.15 # 保留一定安全距离
+                angle_deg = coords['angle_deg'] 
+                
+                actions = [
+                    {"command": "turn", "value": angle_deg},
+                    {"command": "move_forward", "value": distance_m}
+                ]
+                
+                result = robot_control.execute_sequence(actions)
+                reply_text = f"好的，已定位到目标。正在执行移动指令: {result}"
             else:
-                reply_text = f"模型调用了未知的工具: {tool_call.function.name}"
-        else:
-            reply_text = "抱歉，我没能在图片中识别出您指定的物体，无法执行自主移动。"
+                reply_text = "定位到了物体，但在获取它的深度信息时失败了，无法移动。"
 
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError) as e:
+            reply_text = f"处理模型返回数据时出错: {e}。模型原始回复: {response.choices[0].message.content}"
+        
         # 将最终结果告知用户
         assistant_message = {"role": "assistant", "content": reply_text}
         state.conversation_history.append(assistant_message)
@@ -146,11 +157,10 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
             state.tts_thread.start()
             
         return {"history": state.conversation_history, "is_muted": state.is_muted}
-    
-    # --- 如果不是带图像的自主模式，则执行旧的通用逻辑 ---
+
+    # --- 如果不是带图像的自主模式，则执行旧的通用对话逻辑 ---
     else:
-        print("--- 进入通用对话或非视觉自主模式 ---")
-        # 这部分代码保持原样，处理纯文本对话或旧的自主模式（如果还想保留的话）
+        print("--- 进入通用对话模式 ---")
         final_prompt = prompt
         current_user_content = [{"type": "text", "text": final_prompt}]
         if image_filepath:
@@ -166,17 +176,19 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
         
         state.conversation_history.append(user_message)
         
-        # 在非精确导航模式下，不给LLM任何工具，让它只聊天
-        tools_for_llm = None 
-        
-        response = send_to_openai(state.conversation_history, tools=tools_for_llm)
+        try:
+            response = client.chat.completions.create(
+                model=config.OPENAI_MODEL_NAME,
+                messages=state.conversation_history,
+                temperature=config.MODEL_TEMPERATURE,
+                max_tokens=config.MODEL_MAX_TOKENS,
+            )
+            reply_text = response.choices[0].message.content if response.choices[0].message.content else "抱歉，我不知道该如何回应。"
 
-        if isinstance(response, dict) and "error" in response:
+        except Exception as e:
+            print(f"OpenAI API 请求错误 (通用模式): {e}")
+            reply_text = f"调用OpenAI API时出错: {e}"
             state.conversation_history.pop()
-            return {"history": state.conversation_history, "is_muted": state.is_muted, "error": response["error"]}
-
-        message = response.choices[0].message
-        reply_text = message.content
 
         if reply_text:
             assistant_message = {"role": "assistant", "content": reply_text}

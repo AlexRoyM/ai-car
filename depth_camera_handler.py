@@ -30,7 +30,7 @@ class DepthCamera:
                 
             print(f"找到深度流配置: {depth_profile}")
             self.config.enable_stream(depth_profile)
-            state.ros_enabled = True # 假设深度相机和小车总是一起用
+            state.ros_enabled = True 
         except (OBError, RuntimeError) as e:
             print(f"严重错误: 配置奥比中光深度流时出错: {e}")
             state.ros_enabled = False # 出错则禁用相关功能
@@ -100,7 +100,7 @@ class DepthCamera:
         yaw_rad = math.atan2(x_3d, z)
         yaw_deg = math.degrees(yaw_rad)
 
-        # 直接使用Z轴深度作为前进距离，在大多数场景下足够精确
+        # 直接使用Z轴深度作为前进距离
         distance_m = z / 1000.0
         
         print("----------------- 深度计算结果 -----------------")
