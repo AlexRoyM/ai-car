@@ -110,10 +110,18 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
             # 计算绝对像素坐标的中心点
             u = int((abs_x_min + abs_x_max) / 2)
             v = int((abs_y_min + abs_y_max) / 2)
+            # 定义一个包含所有关键点的字典
+            points_of_interest = {
+                "center": (u, v),
+                "top_right": (abs_x_max, abs_y_min),
+                "top_left": (abs_x_min, abs_y_min),
+                "bottom_left": (abs_x_min, abs_y_max),
+                "bottom_right": (abs_x_max, abs_y_max)
+            }
 
             print(f"--- [计算] 反归一化后, 目标中心点像素坐标: (u={u}, v={v}) ---")
 
-            # 5. [新增] 画框并保存图片的功能
+            # 5. 画框并保存图片的功能
             if image_filepath:
                 try:
                     pil_image = Image.open(image_filepath)
@@ -130,7 +138,7 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
                     print(f"--- [错误] 绘制调试图片时出错: {e} ---")
 
             # 6. 从深度相机获取精确数据
-            coords = state.depth_camera_handler.get_distance_and_angle(u, v)
+            coords = state.depth_camera_handler.get_distance_and_angle(points_of_interest)
             
             if coords:
                 distance_m = coords['distance_m'] - 0.15 # 保留一定安全距离

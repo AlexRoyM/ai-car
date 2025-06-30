@@ -74,8 +74,8 @@ def _turn_task(angle_degrees: float):
     twist_msg.angular.z = -math.copysign(config.ANGULAR_SPEED, angle_radians)
     
     print(f"  - 执行转向: 角度={angle_degrees:.1f}°, 目标角速度={twist_msg.angular.z:.2f}rad/s, 持续时间={duration:.2f}s")
+    rate = rospy.Rate(30)
     start_time = rospy.Time.now()
-    rate = rospy.Rate(20)
     while not rospy.is_shutdown() and rospy.Time.now() - start_time < rospy.Duration.from_sec(duration):
         state.cmd_vel_pub.publish(twist_msg)
         rate.sleep()

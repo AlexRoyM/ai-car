@@ -6,7 +6,7 @@ import math
 import threading
 import time
 from pyorbbecsdk import Config, OBSensorType, Pipeline, OBError, OBCameraParam
-
+import config
 import state # 引入state来设置全局标志位
 
 class DepthCamera:
@@ -68,10 +68,16 @@ class DepthCamera:
                 print(f"更新深度帧时出错: {e}")
             time.sleep(1/30) # 控制帧率
 
-    def get_distance_and_angle(self, u, v):
+    def get_distance_and_angle(self, points: dict):
         """
-        根据像素坐标(u, v)计算真实世界的距离和偏航角。
-        返回: 字典 {'distance_m': float, 'angle_deg': float} 或 None
+        根据一个包含多个候选点的字典，按特定顺序尝试获取距离和角度。
+        
+        Args:
+            points (dict): 一个包含关键点坐标的字典, 
+                           例如: {"center": (u,v), "top_right": (u,v), ...}
+
+        Returns:
+            字典 {'distance_m': float, 'angle_deg': float} 或 None
         """
         with self.lock:
             if self.depth_data_map is None or self.camera_params is None:
@@ -80,36 +86,54 @@ class DepthCamera:
 
         # 确保坐标在图像范围内
         h, w = self.depth_data_map.shape
-        if not (0 <= v < h and 0 <= u < w):
-            print(f"错误: 坐标 ({u}, {v}) 超出图像范围 ({w}x{h})。")
-            return None
+        u, v = points["center"]
+        # --- 定义候选点位的尝试顺序 ---
+        # 顺序: 中心点, 右上-中心中点, 左上-中心中点, 左下-中心中点, 右下-中心中点
+        candidate_points = [
+            ("中心点", points["center"]),
+            ("右上中点", ((points["top_right"][0] + u) // 2, (points["top_right"][1] + v) // 2)),
+            ("左上中点", ((points["top_left"][0] + u) // 2, (points["top_left"][1] + v) // 2)),
+            ("左下中点", ((points["bottom_left"][0] + u) // 2, (points["bottom_left"][1] + v) // 2)),
+            ("右下中点", ((points["bottom_right"][0] + u) // 2, (points["bottom_right"][1] + v) // 2)),
+        ]
+        for point_name, (u, v) in candidate_points:
+            # 确保坐标在图像范围内
+            if not (0 <= v < h and 0 <= u < w):
+                print(f"警告: 候选点 '{point_name}'({u}, {v}) 超出图像范围 ({w}x{h})，跳过。")
+                continue
 
-        depth_in_mm = self.depth_data_map[v, u]
+            depth_in_mm = self.depth_data_map[v, u]
 
-        if depth_in_mm == 0:
-            print(f"警告: 坐标 ({u}, {v}) 处的深度值为 0，无法计算。")
-            return None
+            # 找到一个有效的深度值就立即处理并返回
+            if depth_in_mm > 0: # 有效深度值必须大于0
+                print(f"--- [深度获取成功] 使用 '{point_name}' 处的坐标 ({u}, {v}) ---")
+                
+                # 2D -> 3D 转换
+                depth_intrinsics = self.camera_params.depth_intrinsic
+                z = float(depth_in_mm)
+                x_3d = (u - depth_intrinsics.cx) * z / depth_intrinsics.fx
+                z_for_angle_calc_mm = z + (config.CAR_RADIUS_M * 1000)
+                # 计算偏航角 (绕Y轴旋转)
+                yaw_rad = math.atan2(x_3d, z_for_angle_calc_mm)
+                yaw_deg = math.degrees(yaw_rad)
 
-        # 2D -> 3D 转换
-        depth_intrinsics = self.camera_params.depth_intrinsic
-        z = float(depth_in_mm)
-        x_3d = (u - depth_intrinsics.cx) * z / depth_intrinsics.fx
-        # y_3d = (v - depth_intrinsics.cy) * z / depth_intrinsics.fy # y_3d暂时用不到
+                # 直接使用Z轴深度作为前进距离
+                distance_m = z / 1000.0
+                
+                print("----------------- 深度计算结果 -----------------")
+                print(f"目标像素坐标: (u={u}, v={v})")
+                print(f"深度值 (Z轴): {distance_m:.3f} 米")
+                print(f"计算出的偏航角: {yaw_deg:.2f} 度")
+                print("--------------------------------------------------")
 
-        # 计算偏航角 (绕Y轴旋转)
-        yaw_rad = math.atan2(x_3d, z)
-        yaw_deg = math.degrees(yaw_rad)
-
-        # 直接使用Z轴深度作为前进距离
-        distance_m = z / 1000.0
+                return {"distance_m": distance_m, "angle_deg": yaw_deg}
+            else:
+                 print(f"提示: 候选点 '{point_name}'({u}, {v}) 处深度值为 0，尝试下一个点...")
         
-        print("----------------- 深度计算结果 -----------------")
-        print(f"目标像素坐标: (u={u}, v={v})")
-        print(f"深度值 (Z轴): {distance_m:.3f} 米")
-        print(f"计算出的偏航角: {yaw_deg:.2f} 度")
-        print("--------------------------------------------------")
+        # --- 如果所有候选点都失败 ---
+        print("错误: 所有候选点的深度值均为0，无法计算。")
+        return None
 
-        return {"distance_m": distance_m, "angle_deg": yaw_deg}
 
     def release(self):
         """释放资源"""
