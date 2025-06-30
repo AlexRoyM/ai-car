@@ -17,7 +17,7 @@ CAR_TOOLS = [
         "type": "function",
         "function": {
             "name": "execute_sequence",
-            "description": "执行一个由多个移动和转向组成的动作序列来控制小车。用于处理包含多个步骤的指令，例如“先左转30度，再前进0.8米”。",
+            "description": "执行一个由多个移动和转向组成的动作序列来控制小车。用于处理包含多个步骤的指令，例如“先左转30.0度，再前进0.8米”。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -58,7 +58,7 @@ def _move_forward_task(distance: float):
     
     print(f"  - 执行移动: 距离={distance:.2f}m, 速度={twist_msg.linear.x}m/s, 持续时间={duration:.2f}s")
     start_time = rospy.Time.now()
-    rate = rospy.Rate(20)
+    rate = rospy.Rate(50)
     while not rospy.is_shutdown() and rospy.Time.now() - start_time < rospy.Duration.from_sec(duration):
         state.cmd_vel_pub.publish(twist_msg)
         rate.sleep()
@@ -74,7 +74,7 @@ def _turn_task(angle_degrees: float):
     twist_msg.angular.z = -math.copysign(config.ANGULAR_SPEED, angle_radians)
     
     print(f"  - 执行转向: 角度={angle_degrees:.1f}°, 目标角速度={twist_msg.angular.z:.2f}rad/s, 持续时间={duration:.2f}s")
-    rate = rospy.Rate(30)
+    rate = rospy.Rate(50)
     start_time = rospy.Time.now()
     while not rospy.is_shutdown() and rospy.Time.now() - start_time < rospy.Duration.from_sec(duration):
         state.cmd_vel_pub.publish(twist_msg)

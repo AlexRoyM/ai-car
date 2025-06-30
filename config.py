@@ -7,7 +7,7 @@ SLAM_PAGE_URL = "http://192.168.10.102:3000"
 LLM_PROVIDER = "OPENAI"  
 
 # --- OpenAI API 配置 ---
-#OPENAI_API_KEY = "AIzaSyCrtI8Mw1y5xAKQCVTWgA6BkUd4ftZX-G0" # 这特么我的api-key
+#OPENAI_API_KEY = "AIzaSyCrtI8Mw1y5xAKQCVTWgA6BkUd4ftZX-G0" # lht的api-key
 OPENAI_API_KEY = "AIzaSyC8cXQ5xKhYs7YJYsMPE-e7Xj_A_FEssyg"
 OPENAI_MODEL_NAME = "gemini-2.5-flash-lite-preview-06-17" 
 OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/" # gemini2.5
@@ -26,8 +26,9 @@ SELECTED_VOICE = VOICES['male']
 MOVE_SPEED = 0.3
 ANGULAR_SPEED = 0.3
 MAX_MOVE_DISTANCE = 3.0   # 单次指令最大移动距离(米)
-MAX_TURN_ANGLE = 28.0     # 单次指令最大转向角度(度)
-CAR_RADIUS_M = 0.1        # 摄像头到小车旋转中心的距离（米）
+MAX_TURN_ANGLE = 29.2     # 单次指令最大转向角度(度)
+CAR_RADIUS_M = 0.25        # 摄像头到小车旋转中心的距离（米）
+HORIZONTAL_FOV = 58.4     # 摄像头的水平视场角 (度)
 
 # --- ROS 手柄按钮ID定义 ---
 L1_BUTTON_ID = 4

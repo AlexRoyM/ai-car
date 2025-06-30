@@ -110,17 +110,15 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
             # 计算绝对像素坐标的中心点
             u = int((abs_x_min + abs_x_max) / 2)
             v = int((abs_y_min + abs_y_max) / 2)
-            # 定义一个包含所有关键点的字典
-            points_of_interest = {
-                "center": (u, v),
-                "top_right": (abs_x_max, abs_y_min),
-                "top_left": (abs_x_min, abs_y_min),
-                "bottom_left": (abs_x_min, abs_y_max),
-                "bottom_right": (abs_x_max, abs_y_max)
-            }
-
+            # 定义候选点位的尝试顺序
+            candidate_points = [
+                ("中心点", (u, v)),
+                ("右上中点", ((abs_x_max + u) // 2, (abs_y_min + v) // 2)),
+                ("左上中点", ((abs_x_min + u) // 2, (abs_y_min + v) // 2)),
+                ("左下中点", ((abs_x_min + u) // 2, (abs_y_max + v) // 2)),
+                ("右下中点", ((abs_x_max + u) // 2, (abs_y_max + v) // 2)),
+            ]
             print(f"--- [计算] 反归一化后, 目标中心点像素坐标: (u={u}, v={v}) ---")
-
             # 5. 画框并保存图片的功能
             if image_filepath:
                 try:
@@ -137,8 +135,16 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
                 except Exception as e:
                     print(f"--- [错误] 绘制调试图片时出错: {e} ---")
 
-            # 6. 从深度相机获取精确数据
-            coords = state.depth_camera_handler.get_distance_and_angle(points_of_interest)
+            coords = None
+            for point_name, (u, v) in candidate_points:
+                print(f"--- 正在尝试获取点 '{point_name}'({u}, {v}) 的深度信息 ---")
+                # 循环调用单点计算函数
+                coords = state.depth_camera_handler.get_distance_and_angle(u, v)
+                if coords:
+                    print(f"--- 成功获取到点 '{point_name}' 的有效信息。---")
+                    break # 一旦成功，就跳出循环
+                else:
+                    print(f"--- 点 '{point_name}' 无效，尝试下一个。 ---")
             
             if coords:
                 distance_m = coords['distance_m'] - 0.15 # 保留一定安全距离

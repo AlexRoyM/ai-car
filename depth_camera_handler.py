@@ -68,13 +68,14 @@ class DepthCamera:
                 print(f"更新深度帧时出错: {e}")
             time.sleep(1/30) # 控制帧率
 
-    def get_distance_and_angle(self, points: dict):
+    def get_distance_and_angle(self, u, v):
         """
-        根据一个包含多个候选点的字典，按特定顺序尝试获取距离和角度。
-        
+        根据像素坐标(u, v)计算真实世界的距离和【修正后】的偏航角。
+        新逻辑：基于FOV计算角度，并根据摄像头偏移进行几何校正。
+
         Args:
-            points (dict): 一个包含关键点坐标的字典, 
-                           例如: {"center": (u,v), "top_right": (u,v), ...}
+            u (int): 像素坐标u (横向)
+            v (int): 像素坐标v (纵向)
 
         Returns:
             字典 {'distance_m': float, 'angle_deg': float} 或 None
@@ -86,53 +87,49 @@ class DepthCamera:
 
         # 确保坐标在图像范围内
         h, w = self.depth_data_map.shape
-        u, v = points["center"]
-        # --- 定义候选点位的尝试顺序 ---
-        # 顺序: 中心点, 右上-中心中点, 左上-中心中点, 左下-中心中点, 右下-中心中点
-        candidate_points = [
-            ("中心点", points["center"]),
-            ("右上中点", ((points["top_right"][0] + u) // 2, (points["top_right"][1] + v) // 2)),
-            ("左上中点", ((points["top_left"][0] + u) // 2, (points["top_left"][1] + v) // 2)),
-            ("左下中点", ((points["bottom_left"][0] + u) // 2, (points["bottom_left"][1] + v) // 2)),
-            ("右下中点", ((points["bottom_right"][0] + u) // 2, (points["bottom_right"][1] + v) // 2)),
-        ]
-        for point_name, (u, v) in candidate_points:
-            # 确保坐标在图像范围内
-            if not (0 <= v < h and 0 <= u < w):
-                print(f"警告: 候选点 '{point_name}'({u}, {v}) 超出图像范围 ({w}x{h})，跳过。")
-                continue
+        if not (0 <= v < h and 0 <= u < w):
+            print(f"错误: 坐标 ({u}, {v}) 超出图像范围 ({w}x{h})。")
+            return None
 
-            depth_in_mm = self.depth_data_map[v, u]
+        depth_in_mm = self.depth_data_map[v, u]
 
-            # 找到一个有效的深度值就立即处理并返回
-            if depth_in_mm > 0: # 有效深度值必须大于0
-                print(f"--- [深度获取成功] 使用 '{point_name}' 处的坐标 ({u}, {v}) ---")
-                
-                # 2D -> 3D 转换
-                depth_intrinsics = self.camera_params.depth_intrinsic
-                z = float(depth_in_mm)
-                x_3d = (u - depth_intrinsics.cx) * z / depth_intrinsics.fx
-                z_for_angle_calc_mm = z + (config.CAR_RADIUS_M * 1000)
-                # 计算偏航角 (绕Y轴旋转)
-                yaw_rad = math.atan2(x_3d, z_for_angle_calc_mm)
-                yaw_deg = math.degrees(yaw_rad)
+        if depth_in_mm == 0:
+            # 此处返回None，让调用者知道这个点无效
+            return None
 
-                # 直接使用Z轴深度作为前进距离
-                distance_m = z / 1000.0
-                
-                print("----------------- 深度计算结果 -----------------")
-                print(f"目标像素坐标: (u={u}, v={v})")
-                print(f"深度值 (Z轴): {distance_m:.3f} 米")
-                print(f"计算出的偏航角: {yaw_deg:.2f} 度")
-                print("--------------------------------------------------")
+        image_width = w
+        center_u_pixel = image_width / 2
 
-                return {"distance_m": distance_m, "angle_deg": yaw_deg}
-            else:
-                 print(f"提示: 候选点 '{point_name}'({u}, {v}) 处深度值为 0，尝试下一个点...")
+        # 2. 基于FOV计算“相机视角”的偏航角
+        # 这是物体相对于相机镜头中轴线的角度
+        angle_per_pixel = config.HORIZONTAL_FOV / image_width
+        camera_yaw_deg = (u - center_u_pixel) * angle_per_pixel
+        camera_yaw_rad = math.radians(camera_yaw_deg)
+
+        # 3. 计算物理上的横向偏移
+        z_mm = float(depth_in_mm)
+        x_mm = z_mm * math.tan(camera_yaw_rad)
+
+        # 4. 考虑摄像头前向偏移，计算小车需要转动的【修正后】的偏航角
+        # 这是物体相对于小车旋转中心的角度
+        z_compensated_mm = z_mm + (config.CAR_RADIUS_M * 1000)
         
-        # --- 如果所有候选点都失败 ---
-        print("错误: 所有候选点的深度值均为0，无法计算。")
-        return None
+        corrected_yaw_rad = math.atan2(x_mm, z_compensated_mm)
+        corrected_yaw_deg = math.degrees(corrected_yaw_rad)
+        
+        # 5. 前进距离仍然使用原始的Z轴深度
+        distance_m = z_mm / 1000.0
+
+        print("----------------- 深度与角度计算 (新逻辑) -----------------")
+        print(f"目标像素坐标: (u={u}, v={v})")
+        print(f"Z轴深度: {distance_m:.3f} 米")
+        print(f"基于FOV的相机视角: {camera_yaw_deg:.2f} 度")
+        print(f"物理横向偏移: {x_mm:.1f} mm")
+        print(f"用于角度计算的补偿后深度: {z_compensated_mm / 1000.0:.3f} 米")
+        print(f"【最终】修正后的偏航角: {corrected_yaw_deg:.2f} 度")
+        print("----------------------------------------------------------")
+
+        return {"distance_m": distance_m, "angle_deg": corrected_yaw_deg}
 
 
     def release(self):

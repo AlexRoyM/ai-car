@@ -11,7 +11,7 @@ import pygame
 
 import config
 import state
-from camera_handler import Camera
+#from camera_handler import Camera
 from depth_camera_handler import DepthCamera
 from voice_handler import stop_speech_playback
 # 根据配置选择导入哪个处理器
@@ -197,6 +197,7 @@ def initialize_app():
 
     try:
         state.depth_camera_handler = DepthCamera()
+        camera = state.depth_camera_handler
     except Exception as e:
         print(f"严重错误: 深度相机初始化失败: {e}。自主导航功能将不可用。")
         state.depth_camera_handler = None
