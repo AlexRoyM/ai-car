@@ -27,6 +27,8 @@ try:
     import rospy
     from geometry_msgs.msg import Twist
     from sensor_msgs.msg import Joy
+    from nav_msgs.msg import Odometry
+    import robot_control 
     state.ros_enabled = True
 except ImportError:
     print("警告：无法导入 rospy。小车控制功能将被禁用。")
@@ -207,6 +209,10 @@ def initialize_app():
         rospy.init_node('ai_car_controller', anonymous=True, disable_signals=True)
         state.cmd_vel_pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
         rospy.Subscriber('/joy', Joy, joy_callback, queue_size=1)
+        # 订阅里程计话题以实现精确旋转
+        odom_topic = "/odometry/filtered"
+        rospy.Subscriber(odom_topic, Odometry, robot_control.odom_callback, queue_size=1)
+        print(f"* 里程计监听器已启动，订阅话题: {odom_topic}")
         print("* ROS节点和手柄监听器已启动。")
     
     # 开始第一个会话

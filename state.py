@@ -14,7 +14,7 @@ is_autonomous_mode = False
 # --- 线程锁 ---
 joy_trigger_lock = threading.Lock()
 joy_stop_tts_lock = threading.Lock()
-
+tts_lock = threading.Lock()
 # --- ROS & 小车控制状态 ---
 # 将ROS相关对象放在这里，方便跨模块访问
 ros_enabled = False

@@ -61,11 +61,11 @@ class UnifiedCamera:
             if not color_profile_list:
                 raise RuntimeError("错误: 未找到彩色传感器!")
             
-            try:
-                color_profile = color_profile_list.get_video_stream_profile(640, 480, OBFormat.MJPG, 30)
-            except OBError:
-                print("警告: 无法获取 640x480 MJPG@30fps 配置，回退到默认配置。")
-                color_profile = color_profile_list.get_default_video_stream_profile()
+            #try:
+                #color_profile = color_profile_list.get_video_stream_profile(640, 480, OBFormat.MJPG, 30)
+            #except OBError:
+                #print("警告: 无法获取 640x480 MJPG@30fps 配置，回退到默认配置。")
+            color_profile = color_profile_list.get_default_video_stream_profile()
             self.config.enable_stream(color_profile)
             print(f"彩色流已配置: {color_profile.get_width()}x{color_profile.get_height()} @ {color_profile.get_fps()}fps, 格式={color_profile.get_format()}")
 
@@ -74,11 +74,11 @@ class UnifiedCamera:
             if not depth_profile_list:
                 raise RuntimeError("错误: 未找到深度传感器!")
             
-            try:
-                depth_profile = depth_profile_list.get_video_stream_profile(640, 480, OBFormat.Y16, 30)
-            except OBError:
-                print("警告: 无法获取 640x480 Y16@30fps 配置，回退到默认配置。")
-                depth_profile = depth_profile_list.get_default_video_stream_profile()
+            #try:
+                #depth_profile = depth_profile_list.get_video_stream_profile(640, 480, OBFormat.Y16, 30)
+            #except OBError:
+                #print("警告: 无法获取 640x480 Y16@30fps 配置，回退到默认配置。")
+            depth_profile = depth_profile_list.get_default_video_stream_profile()
             self.config.enable_stream(depth_profile)
             print(f"深度流已配置: {depth_profile.get_width()}x{depth_profile.get_height()} @ {depth_profile.get_fps()}fps, 格式={depth_profile.get_format()}")
 

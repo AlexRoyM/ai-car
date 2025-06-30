@@ -22,7 +22,7 @@ def preprocess_text_for_speech(text: str) -> str:
     
     return text
 def speak_text_threaded(text):
-    """在后台线程中生成并播放语音"""
+    """在后台线程中生成并播放语音(已增加线程锁)"""
     session_dir = os.path.dirname(state.TEMP_AUDIO_PATH)
     temp_audio_path = os.path.join(session_dir, f"tts_{uuid.uuid4()}.mp3")
     try:
@@ -39,11 +39,17 @@ def speak_text_threaded(text):
         asyncio.run(generate_speech_async(processed_text, temp_audio_path))
         
         # 播放语音
-        pygame.mixer.music.load(temp_audio_path)
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            if not pygame.mixer.get_init(): break
-            time.sleep(0.1)
+        with state.tts_lock:
+            # 检查mixer是否初始化，因为stop函数可能会反初始化它
+            if not pygame.mixer.get_init():
+                print("--- [警告] Pygame Mixer未初始化，跳过播放。---")
+                return
+
+            pygame.mixer.music.load(temp_audio_path)
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                if not pygame.mixer.get_init(): break
+                time.sleep(0.1)
             
     except Exception as e:
         print(f"后台语音线程错误: {e}")
@@ -62,9 +68,11 @@ async def generate_speech_async(text, output_file):
     await communicate.save(output_file)
 
 def stop_speech_playback():
-    """停止当前播放的语音并打印日志"""
-    if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
-        pygame.mixer.music.stop()
-        print("--- 语音播放已通过指令停止 ---")
-        return True
+    """停止当前播放的语音并打印日志 (已增加线程锁)"""
+    stopped = False
+    with state.tts_lock: # <--- 使用锁保护
+        if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+            pygame.mixer.music.stop()
+            print("--- 语音播放已通过指令停止 ---")
+            stopped = True
     return False
