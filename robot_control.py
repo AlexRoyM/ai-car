@@ -66,7 +66,7 @@ def _move_forward_task(distance: float):
 
 def _turn_task(angle_degrees: float):
     if not state.ros_enabled: return "错误: ROS未启用。"
-    
+
     angle_radians = math.radians(angle_degrees)
     duration = abs(angle_radians) / config.ANGULAR_SPEED
     twist_msg = Twist()
