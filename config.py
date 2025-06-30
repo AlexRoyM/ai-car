@@ -7,8 +7,8 @@ SLAM_PAGE_URL = "http://192.168.10.102:3000"
 LLM_PROVIDER = "OPENAI"  
 
 # --- OpenAI API 配置 ---
-#OPENAI_API_KEY = "AIzaSyCrtI8Mw1y5xAKQCVTWgA6BkUd4ftZX-G0" # lht的api-key
-OPENAI_API_KEY = "AIzaSyC8cXQ5xKhYs7YJYsMPE-e7Xj_A_FEssyg"
+#OPENAI_API_KEY = "" # lht的api-key
+OPENAI_API_KEY = ""
 OPENAI_MODEL_NAME = "gemini-2.5-flash-lite-preview-06-17" 
 OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/" # gemini2.5
 
