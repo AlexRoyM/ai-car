@@ -38,7 +38,7 @@ def send_to_openai_for_json(messages_history):
 def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webpath=None, autonomous_mode=False):
     """处理用户输入，与OpenAI LLM交互并返回结果的完整流程"""
     # 仅在带图像的自主模式下，执行目标定位逻辑
-    if autonomous_mode and image_filepath and state.depth_camera_handler:
+    if autonomous_mode and image_filepath and state.camera_handler:
         print("--- 进入精确自主导航模式 (归一化坐标JSON模式) ---")
         
         # 1. 准备给LLM的指令，严格按照你提供的示例逻辑，要求返回归一化坐标
@@ -139,7 +139,7 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
             for point_name, (u, v) in candidate_points:
                 print(f"--- 正在尝试获取点 '{point_name}'({u}, {v}) 的深度信息 ---")
                 # 循环调用单点计算函数
-                coords = state.depth_camera_handler.get_distance_and_angle(u, v)
+                coords = state.camera_handler.get_distance_and_angle(u, v)
                 if coords:
                     print(f"--- 成功获取到点 '{point_name}' 的有效信息。---")
                     break # 一旦成功，就跳出循环

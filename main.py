@@ -11,8 +11,7 @@ import pygame
 
 import config
 import state
-#from camera_handler import Camera
-from depth_camera_handler import DepthCamera
+from unified_camera_handler import UnifiedCamera
 from voice_handler import stop_speech_playback
 # 根据配置选择导入哪个处理器
 if config.LLM_PROVIDER == "OPENAI":
@@ -40,9 +39,6 @@ except ImportError:
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = None # 将在会话开始时设置
 
-# --- Global Instances ---
-camera = None
-
 # --- Helper Functions ---
 def start_new_session():
     """初始化或重置会话"""
@@ -59,9 +55,9 @@ def start_new_session():
 
 def get_video_frames():
     """视频流生成器"""
-    if not camera: return
+    if not state.camera_handler: return
     while True:
-        frame = camera.get_jpeg_frame()
+        frame = state.camera_handler.get_jpeg_frame()
         if frame:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
@@ -98,13 +94,14 @@ def joy_callback(data):
         
         def process_in_background():
             try:
-                if not camera: return
+                if not state.camera_handler: return
                 prompt = "请根据这张图片进行分析。"
-                
+                    
                 # 使用app上下文，确保在线程中能访问app.config
                 with app.app_context():
-                    image_webpath, image_filepath = camera.capture_image_to_file(app.config['UPLOAD_FOLDER'], state.current_session_id)
-                
+                    # Add indentation to this line
+                    image_webpath, image_filepath = state.camera_handler.capture_image_to_file(app.config['UPLOAD_FOLDER'], state.current_session_id)
+
                 if not image_filepath:
                     print("[快捷键] 拍照失败，无法发送。")
                     return
@@ -141,12 +138,12 @@ def handle_send_message():
 
 @app.route('/capture_and_send', methods=['POST'])
 def handle_capture_and_send():
-    if not camera: return jsonify({"error": "摄像头未初始化"}), 500
+    if not state.camera_handler: return jsonify({"error": "摄像头未初始化"}), 500
     
     prompt = request.form.get('prompt', '')
     autonomous_mode = request.form.get('autonomous_mode', 'false').lower() == 'true'
     
-    image_webpath, image_filepath = camera.capture_image_to_file(app.config['UPLOAD_FOLDER'], state.current_session_id)
+    image_webpath, image_filepath = state.camera_handler.capture_image_to_file(app.config['UPLOAD_FOLDER'], state.current_session_id) 
     if not image_filepath: return jsonify({"error": "拍照失败"}), 400
     
     response_data = process_message_and_get_reply(prompt, image_filepath, image_webpath, autonomous_mode)
@@ -190,28 +187,21 @@ def stop_tts():
 # --- Initialization and Cleanup ---
 def initialize_app():
     """初始化所有服务"""
-    global camera
     # 初始化Pygame Mixer
     pygame.init()
     pygame.mixer.init()
 
+    # 初始化统一摄像头
     try:
-        state.depth_camera_handler = DepthCamera()
-        camera = state.depth_camera_handler
+        # 尝试初始化我们新的统一摄像头处理器
+        state.camera_handler = UnifiedCamera()
+        # UnifiedCamera 的构造函数会在失败时自动将 state.ros_enabled 设置为 False
     except Exception as e:
-        print(f"严重错误: 深度相机初始化失败: {e}。自主导航功能将不可用。")
-        state.depth_camera_handler = None
-        # 如果深度相机失败，确保 ros_enabled 也为 False
-        if hasattr(state, 'ros_enabled'):
-            state.ros_enabled = False
-    # 初始化摄像头
-    try:
-        camera = Camera()
-    except IOError as e:
-        print(f"严重错误: 摄像头初始化失败: {e}。部分功能将不可用。")
-        camera = None
+        print(f"严重错误: 统一摄像头初始化失败: {e}。摄像头与自主导航功能将不可用。")
+        state.camera_handler = None
+        state.ros_enabled = False
 
-    # 初始化ROS
+    # 初始化ROS (现在这个判断是可靠的)
     if state.ros_enabled:
         print("正在初始化ROS节点...")
         rospy.init_node('ai_car_controller', anonymous=True, disable_signals=True)
@@ -225,10 +215,8 @@ def initialize_app():
 def cleanup(sig, frame):
     """程序退出前的清理工作"""
     print("\n接收到关停信号 (Ctrl+C)... 正在清理资源...")
-    if state.depth_camera_handler:
-        state.depth_camera_handler.release()
-    if camera:
-        camera.release()
+    if state.camera_handler: 
+        state.camera_handler.release()
     if pygame.mixer.get_init():
         pygame.mixer.quit()
     if pygame.get_init():
