@@ -51,6 +51,7 @@ class UnifiedCamera:
         self.latest_color_frame = None
         self.latest_depth_frame = None
         self.camera_params = None
+        self.latest_jpeg_bytes = None        
         
         self.is_running = False
         
@@ -61,29 +62,27 @@ class UnifiedCamera:
             if not color_profile_list:
                 raise RuntimeError("错误: 未找到彩色传感器!")
             
-            #try:
-                #color_profile = color_profile_list.get_video_stream_profile(640, 480, OBFormat.MJPG, 30)
-            #except OBError:
-                #print("警告: 无法获取 640x480 MJPG@30fps 配置，回退到默认配置。")
-            color_profile = color_profile_list.get_default_video_stream_profile()
+            try:
+                color_profile = color_profile_list.get_video_stream_profile(640, 480, OBFormat.MJPG, 30)
+            except OBError:
+                color_profile = color_profile_list.get_default_video_stream_profile()
             self.config.enable_stream(color_profile)
             print(f"彩色流已配置: {color_profile.get_width()}x{color_profile.get_height()} @ {color_profile.get_fps()}fps, 格式={color_profile.get_format()}")
 
             # 2. 配置深度流
-            depth_profile_list = self.pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
-            if not depth_profile_list:
-                raise RuntimeError("错误: 未找到深度传感器!")
+            #depth_profile_list = self.pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
+            #if not depth_profile_list:
+                #raise RuntimeError("错误: 未找到深度传感器!")
             
             #try:
                 #depth_profile = depth_profile_list.get_video_stream_profile(640, 480, OBFormat.Y16, 30)
             #except OBError:
-                #print("警告: 无法获取 640x480 Y16@30fps 配置，回退到默认配置。")
-            depth_profile = depth_profile_list.get_default_video_stream_profile()
-            self.config.enable_stream(depth_profile)
-            print(f"深度流已配置: {depth_profile.get_width()}x{depth_profile.get_height()} @ {depth_profile.get_fps()}fps, 格式={depth_profile.get_format()}")
+                #depth_profile = depth_profile_list.get_default_video_stream_profile()
+            #self.config.enable_stream(depth_profile)
+            #print(f"深度流已配置: {depth_profile.get_width()}x{depth_profile.get_height()} @ {depth_profile.get_fps()}fps, 格式={depth_profile.get_format()}")
 
             # 3. 设置硬件对齐模式
-            self.config.set_align_mode(OBAlignMode.HW_MODE)
+            #self.config.set_align_mode(OBAlignMode.HW_MODE)
 
         except (OBError, RuntimeError) as e:
             print(f"严重错误: 配置数据流时出错: {e}")
@@ -92,7 +91,7 @@ class UnifiedCamera:
 
         # 4. 启动 Pipeline
         self.pipeline.start(self.config)
-        self.camera_params = self.pipeline.get_camera_param()
+        #self.camera_params = self.pipeline.get_camera_param()
         print("--- 摄像头 Pipeline 已启动 ---")
 
         self.is_running = True
@@ -105,19 +104,31 @@ class UnifiedCamera:
         while self.is_running:
             try:
                 # 使用wait_for_frames阻塞等待，而不是高频轮询
-                frames = self.pipeline.wait_for_frames(1000)
+                frames = self.pipeline.wait_for_frames(100)
                 if frames is None:
                     continue
 
                 color_frame = frames.get_color_frame()
-                depth_frame = frames.get_depth_frame()
-
+                #depth_frame = frames.get_depth_frame()
+                #if depth_frame is None or color_frame is None:
+                    #continue
+                #with self.lock:
+                #    # 直接保存帧对象，不做任何处理
+                #    if color_frame:
+                #        self.latest_color_frame = color_frame
+                #    if depth_frame:
+                #        self.latest_depth_frame = depth_frame
+                bgr_image = _convert_color_frame_to_bgr_image(color_frame)
+                if bgr_image is None:
+                    continue
+                ret, jpeg_buffer = cv2.imencode('.jpg', bgr_image)
+                if not ret:
+                    continue                                        
                 with self.lock:
-                    # 直接保存帧对象，不做任何处理
-                    if color_frame:
-                        self.latest_color_frame = color_frame
-                    if depth_frame:
-                        self.latest_depth_frame = depth_frame
+                    self.latest_color_frame = bgr_image.copy()
+                    self.latest_jpeg_bytes = jpeg_buffer.tobytes()
+                    #if depth_frame:
+                         #self.latest_depth_frame = depth_frame                                        
                         
             except Exception as e:
                 print(f"更新帧数据时出错: {e}")
@@ -127,38 +138,43 @@ class UnifiedCamera:
         为网页视频流提供JPEG编码的帧。
         """
         with self.lock:
-            if self.latest_color_frame is None:
-                return None
+            return self.latest_jpeg_bytes        
+            #if self.latest_color_frame is None:
+                #return None
             
-            # 如果格式是MJPG，直接返回原始数据
-            if self.latest_color_frame.get_format() == OBFormat.MJPG:
-                data = np.asanyarray(self.latest_color_frame.get_data())
-                return data.tobytes()
+            ## 如果格式是MJPG，直接返回原始数据
+            #if self.latest_color_frame.get_format() == OBFormat.MJPG:
+            #    data = np.asanyarray(self.latest_color_frame.get_data())
+            #    return data.tobytes()
             
             # 否则需要转换
-            color_frame = self.latest_color_frame
+            #bgr_image = self.latest_color_frame.copy()
         
         # 在锁外进行转换
-        bgr_image = _convert_color_frame_to_bgr_image(color_frame)
-        if bgr_image is None:
-            return None
+        #bgr_image = _convert_color_frame_to_bgr_image(color_frame)
+        #if bgr_image is None:
+            #return None
         
-        ret, jpeg_buffer = cv2.imencode('.jpg', bgr_image)
-        return jpeg_buffer.tobytes() if ret else None
+        #ret, jpeg_buffer = cv2.imencode('.jpg', bgr_image)
+        #return jpeg_buffer.tobytes() if ret else None
 
     def capture_image_to_file(self, upload_folder, session_id):
         """
         捕获当前帧，将彩色图像保存到文件。
         返回: (web_path, file_path) 或 (None, None)
         """
-        with self.lock:
-            if self.latest_color_frame is None:
-                return None, None
-            color_frame_copy = self.latest_color_frame
+        #with self.lock:
+            #if self.latest_color_frame is None:
+                #return None, None
+            #color_frame_copy = self.latest_color_frame.copy()
 
-        bgr_image = _convert_color_frame_to_bgr_image(color_frame_copy)
+        #bgr_image = _convert_color_frame_to_bgr_image(color_frame_copy)
+        with self.lock:
+            bgr_image = self.latest_color_frame.copy()
+        #print(f"111")
         if bgr_image is None:
             return None, None
+            
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"capture_{timestamp}.jpg"
@@ -178,11 +194,11 @@ class UnifiedCamera:
             if self.latest_depth_frame is None:
                 print("错误: 深度帧尚未就绪。")
                 return None
-            depth_frame = self.latest_depth_frame
+            depth_frame = self.latest_depth_frame.copy()
         
-        if self.camera_params is None:
-            print("错误: 相机参数尚未就绪。")
-            return None
+        #if self.camera_params is None:
+            #print("错误: 相机参数尚未就绪。")
+            #return None
 
         # 处理深度数据
         scale = depth_frame.get_depth_scale()

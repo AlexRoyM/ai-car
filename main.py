@@ -57,14 +57,23 @@ def start_new_session():
 
 def get_video_frames():
     """视频流生成器"""
-    if not state.camera_handler: return
+    if not state.camera_handler:
+        return
+    
+    last_frame_time = 0
+    frame_interval = 1.0 / 15  # 限制为15fps
+    
     while True:
+        current_time = time.time()
+        if current_time - last_frame_time < frame_interval:
+            time.sleep(0.01)
+            continue
+            
         frame = state.camera_handler.get_jpeg_frame()
         if frame:
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        # 稍微降低帧率以减少网络负载
-        rospy.sleep(1/30) if state.ros_enabled else time.sleep(1/30)
+            last_frame_time = current_time
 
 
 # --- ROS Joy Callback ---

@@ -12,7 +12,7 @@ if __name__ == '__main__':
     
     print("\n--- AI小车控制服务已启动 ---")
     print(f"* 访问地址 1: http://127.0.0.1:{FLASK_PORT}")
-    #print(f"* 请将浏览器指向你小车的实际IP地址, 例如: http://192.168.10.103:{FLASK_PORT}")
+    print(f"* 小车的实际IP地址,  http://192.168.31.247:{FLASK_PORT}")
     print("-----------------------------\n")
 
     # 运行Flask应用
