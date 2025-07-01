@@ -7,44 +7,44 @@ import threading
 try:
     import rospy
     from geometry_msgs.msg import Twist
-    from nav_msgs.msg import Odometry
+    #from nav_msgs.msg import Odometry
 except ImportError:
     # 即使ROS未启用，也定义一个假的Twist以便类型提示
     class Twist: pass
-    class Odometry: pass
+    #class Odometry: pass
 # --- 用于存储基于里程计的机器人状态 ---
-class RobotState:
-    def __init__(self):
-        self.current_yaw = 0.0
-        self.lock = threading.Lock()
+#class RobotState:
+    #def __init__(self):
+        #self.current_yaw = 0.0
+        #self.lock = threading.Lock()
 
-robot_state = RobotState()
+#robot_state = RobotState()
 
 # --- 从四元数计算偏航角的辅助函数 ---
-def quaternion_to_yaw(x, y, z, w):
-    t3 = +2.0 * (w * z + x * y)
-    t4 = +1.0 - 2.0 * (y * y + z * z)
-    yaw_z = math.atan2(t3, t4)
-    return yaw_z
+#def quaternion_to_yaw(x, y, z, w):
+    #t3 = +2.0 * (w * z + x * y)
+    #t4 = +1.0 - 2.0 * (y * y + z * z)
+    #yaw_z = math.atan2(t3, t4)
+    #return yaw_z
 
 # --- 处理里程计消息的回调函数 ---
-def odom_callback(msg: Odometry):
-    """
-    处理来自 /odometry/filtered 的数据，更新机器人的当前偏航角。
-    """
-    orientation_q = msg.pose.pose.orientation
-    yaw = quaternion_to_yaw(orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w)
+#def odom_callback(msg: Odometry):
+    #"""
+    #处理来自 /odometry/filtered 的数据，更新机器人的当前偏航角。
+    #"""
+    #orientation_q = msg.pose.pose.orientation
+    #yaw = quaternion_to_yaw(orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w)
     
-    with robot_state.lock:
-        robot_state.current_yaw = yaw
+    #with robot_state.lock:
+        #robot_state.current_yaw = yaw
 
 # --- 将角度归一化到-pi到pi之间的辅助函数 ---
-def normalize_angle(angle):
-    while angle > math.pi:
-        angle -= 2.0 * math.pi
-    while angle < -math.pi:
-        angle += 2.0 * math.pi
-    return angle
+#def normalize_angle(angle):
+    #while angle > math.pi:
+        #angle -= 2.0 * math.pi
+    #while angle < -math.pi:
+        #angle += 2.0 * math.pi
+    #return angle
 
 # --- Tool Definition ---
 CAR_TOOLS = [
@@ -97,51 +97,35 @@ def _move_forward_task(distance: float):
     while not rospy.is_shutdown() and rospy.Time.now() - start_time < rospy.Duration.from_sec(duration):
         state.cmd_vel_pub.publish(twist_msg)
         rate.sleep()
-    return f"已向前移动{distance:.2f}米"
+    # 确保循环结束后机器人完全停止
+    state.cmd_vel_pub.publish(Twist())
+    rospy.sleep(0.1)
+    
+    if distance >= 0:
+        return f"已向前移动{distance:.2f}米"
+    else:
+        return f"已向后移动{-distance:.2f}米"
 
 def _turn_task(angle_degrees: float):
     if not state.ros_enabled: return "错误: ROS未启用。"
-
-    target_rad = math.radians(angle_degrees)
-    # 容忍误差
-    tolerance_rad = math.radians(1.5)
-    rate = rospy.Rate(50)
-
-    # 短暂延时，确保回调函数已经更新了初始角度
-    rospy.sleep(0.1)
-
-    with robot_state.lock:
-        initial_yaw = robot_state.current_yaw
-
-    target_yaw = normalize_angle(initial_yaw + target_rad)
-    
-    print(f"  - [精确转向] 初始角度: {math.degrees(initial_yaw):.2f}°")
-    print(f"  - [精确转向] 目标角度: {math.degrees(target_yaw):.2f}°")
+    # 将角度从度转换为弧度
+    angle_radians = math.radians(angle_degrees)
+    # 基于配置的角速度计算旋转持续时间
+    # duration = |angle_in_radians| / angular_speed
+    duration = abs(angle_radians) / config.ANGULAR_SPEED
     
     twist_msg = Twist()
-    # 根据角度正负决定旋转方向
-    if angle_degrees < 0:
-        twist_msg.angular.z = abs(config.ANGULAR_SPEED) # 左转
-    else:
-        twist_msg.angular.z = -abs(config.ANGULAR_SPEED)  # 右转
+    # 根据角度符号决定转向。正角度右转(z为负)，负角度左转(z为正)。
+    twist_msg.angular.z = -math.copysign(config.ANGULAR_SPEED, angle_radians)
     
-    while not rospy.is_shutdown():
-        with robot_state.lock:
-            current_yaw = robot_state.current_yaw
-        
-        # 持续发布速度指令
+    print(f"  - 执行转向: 角度={angle_degrees:.1f}°, 目标角速度={twist_msg.angular.z:.2f}rad/s, 持续时间={duration:.2f}s")
+    rate = rospy.Rate(50) # 频率可以根据需要调整
+    start_time = rospy.Time.now()
+    
+    while not rospy.is_shutdown() and rospy.Time.now() - start_time < rospy.Duration.from_sec(duration):
         state.cmd_vel_pub.publish(twist_msg)
-        
-        # 计算剩余角度
-        remaining_rad = normalize_angle(target_yaw - current_yaw)
-        
-        # 如果剩余角度小于容忍误差，则停止
-        if abs(remaining_rad) < tolerance_rad:
-            print(f"  - [精确转向] 已到达目标角度，剩余误差: {math.degrees(remaining_rad):.2f}°")
-            break
-            
         rate.sleep()
-    
+        
     # 确保循环结束后机器人完全停止
     state.cmd_vel_pub.publish(Twist())
     rospy.sleep(0.1) # 短暂延时确保停止指令被发送
@@ -164,12 +148,12 @@ def execute_sequence(actions: list):
 
             if command == "move_forward":
                 # 使用config中的参数进行限制
-                value = max(min(value, config.MAX_MOVE_DISTANCE), -config.MAX_MOVE_DISTANCE)
+                value = max(min(value, config.MAX_MOVE_DISTANCE), 0)
                 result = _move_forward_task(value)
                 tool_results.append(result)
             elif command == "move_backward":
                 value = max(min(abs(value), config.MAX_MOVE_DISTANCE), 0)
-                result = _move_forward_task(-value)
+                result = _move_forward_task(-value) # 以后退方式调用
                 tool_results.append(result)
             elif command == "turn":
                 original_angle = value

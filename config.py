@@ -24,10 +24,10 @@ SELECTED_VOICE = VOICES['male']
 
 # --- 小车物理参数 ---
 MOVE_SPEED = 0.3
-ANGULAR_SPEED = 0.2
+ANGULAR_SPEED = 0.3
 MAX_MOVE_DISTANCE = 3.0   # 单次指令最大移动距离(米)
 MAX_TURN_ANGLE = 29.2     # 单次指令最大转向角度(度)
-CAR_RADIUS_M = 5.0        # 摄像头到小车旋转中心的距离（米）
+CAR_RADIUS_M = 3.0        # 摄像头到小车旋转中心的距离（米）
 HORIZONTAL_FOV = 58.4     # 摄像头的水平视场角 (度)
 # --- 转向容忍度配置 ---
 TURN_TOLERANCE_DEG = 1.5    # 当转向角度的绝对值小于此值时，将忽略该转向动作。

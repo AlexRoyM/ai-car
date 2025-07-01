@@ -220,7 +220,7 @@ def initialize_app():
         rospy.Subscriber('/joy', Joy, joy_callback, queue_size=1)
         # 订阅里程计话题以实现精确旋转
         odom_topic = "/odometry/filtered"
-        rospy.Subscriber(odom_topic, Odometry, robot_control.odom_callback, queue_size=1)
+        rospy.Subscriber(odom_topic, Odometry, queue_size=1)
         print(f"* 里程计监听器已启动，订阅话题: {odom_topic}")
         print("* ROS节点和手柄监听器已启动。")
     

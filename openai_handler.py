@@ -147,7 +147,7 @@ def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webp
                     print(f"--- 点 '{point_name}' 无效，尝试下一个。 ---")
             
             if coords:
-                distance_m = coords['distance_m'] - 0.15 # 保留一定安全距离
+                distance_m = coords['distance_m'] - 0.20 # 保留一定安全距离
                 angle_deg = coords['angle_deg'] 
                 
                 actions = [
