@@ -70,19 +70,19 @@ class UnifiedCamera:
             print(f"彩色流已配置: {color_profile.get_width()}x{color_profile.get_height()} @ {color_profile.get_fps()}fps, 格式={color_profile.get_format()}")
 
             # 2. 配置深度流
-            #depth_profile_list = self.pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
-            #if not depth_profile_list:
-                #raise RuntimeError("错误: 未找到深度传感器!")
+            depth_profile_list = self.pipeline.get_stream_profile_list(OBSensorType.DEPTH_SENSOR)
+            if not depth_profile_list:
+                raise RuntimeError("错误: 未找到深度传感器!")
             
-            #try:
-                #depth_profile = depth_profile_list.get_video_stream_profile(640, 480, OBFormat.Y16, 30)
-            #except OBError:
-                #depth_profile = depth_profile_list.get_default_video_stream_profile()
-            #self.config.enable_stream(depth_profile)
-            #print(f"深度流已配置: {depth_profile.get_width()}x{depth_profile.get_height()} @ {depth_profile.get_fps()}fps, 格式={depth_profile.get_format()}")
+            try:
+                depth_profile = depth_profile_list.get_video_stream_profile(640, 480, OBFormat.Y16, 30)
+            except OBError:
+                depth_profile = depth_profile_list.get_default_video_stream_profile()
+            self.config.enable_stream(depth_profile)
+            print(f"深度流已配置: {depth_profile.get_width()}x{depth_profile.get_height()} @ {depth_profile.get_fps()}fps, 格式={depth_profile.get_format()}")
 
             # 3. 设置硬件对齐模式
-            #self.config.set_align_mode(OBAlignMode.HW_MODE)
+            self.config.set_align_mode(OBAlignMode.HW_MODE)
 
         except (OBError, RuntimeError) as e:
             print(f"严重错误: 配置数据流时出错: {e}")
@@ -91,7 +91,7 @@ class UnifiedCamera:
 
         # 4. 启动 Pipeline
         self.pipeline.start(self.config)
-        #self.camera_params = self.pipeline.get_camera_param()
+        self.camera_params = self.pipeline.get_camera_param()
         print("--- 摄像头 Pipeline 已启动 ---")
 
         self.is_running = True
@@ -109,9 +109,9 @@ class UnifiedCamera:
                     continue
 
                 color_frame = frames.get_color_frame()
-                #depth_frame = frames.get_depth_frame()
-                #if depth_frame is None or color_frame is None:
-                    #continue
+                depth_frame = frames.get_depth_frame()
+                if depth_frame is None or color_frame is None:
+                    continue
                 #with self.lock:
                 #    # 直接保存帧对象，不做任何处理
                 #    if color_frame:
@@ -127,8 +127,8 @@ class UnifiedCamera:
                 with self.lock:
                     self.latest_color_frame = bgr_image.copy()
                     self.latest_jpeg_bytes = jpeg_buffer.tobytes()
-                    #if depth_frame:
-                         #self.latest_depth_frame = depth_frame                                        
+                    if depth_frame:
+                         self.latest_depth_frame = depth_frame                                    
                         
             except Exception as e:
                 print(f"更新帧数据时出错: {e}")
@@ -190,17 +190,19 @@ class UnifiedCamera:
         """
         根据给定的像素坐标(u, v)计算距离和角度。
         """
+        #print("000")
         with self.lock:
             if self.latest_depth_frame is None:
                 print("错误: 深度帧尚未就绪。")
                 return None
-            depth_frame = self.latest_depth_frame.copy()
+            depth_frame = self.latest_depth_frame
         
-        #if self.camera_params is None:
-            #print("错误: 相机参数尚未就绪。")
-            #return None
+        if self.camera_params is None:
+            print("错误: 相机参数尚未就绪。")
+            return None
 
         # 处理深度数据
+        #print("111")
         scale = depth_frame.get_depth_scale()
         depth_buffer = np.frombuffer(depth_frame.get_data(), dtype=np.uint16)
         depth_map = depth_buffer.reshape((depth_frame.get_height(), depth_frame.get_width()))
@@ -223,7 +225,7 @@ class UnifiedCamera:
         
         z_compensated_mm = z_mm + (config.CAR_RADIUS_M * 1000)
         corrected_yaw_rad = math.atan2(x_mm, z_compensated_mm)
-        
+        #print("222")
         return {
             "distance_m": z_mm / 1000.0,
             "angle_deg": math.degrees(corrected_yaw_rad)

@@ -61,7 +61,7 @@ def get_video_frames():
         return
     
     last_frame_time = 0
-    frame_interval = 1.0 / 15  # 限制为15fps
+    frame_interval = 1.0 / 30  # 限制为15fps
     
     while True:
         current_time = time.time()

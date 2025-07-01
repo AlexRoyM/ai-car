@@ -104,7 +104,7 @@ def _turn_task(angle_degrees: float):
 
     target_rad = math.radians(angle_degrees)
     # 容忍误差
-    tolerance_rad = math.radians(1.2)
+    tolerance_rad = math.radians(1.5)
     rate = rospy.Rate(50)
 
     # 短暂延时，确保回调函数已经更新了初始角度
