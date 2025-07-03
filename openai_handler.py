@@ -29,15 +29,36 @@ def get_refined_system_prompt():
         "3. **精确执行**：准确理解并执行识别任务。"
     )
 def get_autonomous_json_instructions():
-    """获取在自主模式下指导LLM输出特定JSON格式的指令"""
+    """获取在自主模式下指导LLM输出特定JSON格式的指令（V2版：支持复合指令和返回）"""
     return (
         "根据用户的指令和提供的图片（如果有），以严格的JSON格式返回你的分析和行动计划。JSON对象必须包含以下字段：\n"
         "1. `detection_required` (boolean): 如果需要通过分析图片中的物体来确定移动目标，则为 `true`。如果指令是纯文本移动（如“前进1米”或者“后退1米”或者“向左转20.0度”）或非移动任务（如“描述图片”），则为 `false`。\n"
-        "2. `actions` (array): 一个包含移动指令的列表。如果 `detection_required` 为 `true`，此列表应为空，因为具体动作将由代码根据检测结果计算。如果 `detection_required` 为 `false` 且用户指令包含明确的移动要求，请在此填充动作，例如 `[{\"command\": \"turn\", \"value\": -90.0}, {\"command\": \"move_forward\", \"value\": 2.0}]` (角度单位为度，距离单位为米；左转为负，右转为正)。如果无需移动，则为空列表 `[]`。\n"
+        "2. `actions` (array): 一个包含移动指令的列表。即使`detection_required`为`true`，你也需要将用户指令中后续的文本动作（如“然后后退1.2米”）解析到这里，如果用户指令中没有后续的文本动作则不用移动，则为空列表 `[]`.如果用户说“回来”，则在这里填充 `[{\"command\": \"return_to_start\"}]`。如果 `detection_required` 为 `false` 且用户指令包含明确的移动要求，请在此填充动作，例如 `[{\"command\": \"turn\", \"value\": -90.0}, {\"command\": \"move_forward\", \"value\": 2.0}]` (角度单位为度，距离单位为米；左转为负，右转为正)。如果无需移动，则为空列表 `[]`。\n"
         "3. `target_object` (object | null): 如果 `detection_required` 为 `true`，此对象必须包含 `label` (string，物体描述) 和 `box_2d` (array，格式为 `[ymin, xmin, ymax, xmax]` 的归一化坐标 0-1000)。否则，此值为 `null`。\n"
         "4. `response` (string): 你要对用户说的自然语言回复。这段回复应该结合你的观察和将要执行的动作，并包含必要的安全提醒。\n"
+        "**功能示例1：复合指令**\n"
+        "用户发送图片并说“去那个蓝色桶那里，然后向右转25.3度”\n"
+        "```json\n"
+        "{\n"
+        "  \"detection_required\": true,\n"
+        "  \"actions\": [{\"command\": \"turn\", \"value\": 25.3}],\n"
+        "  \"target_object\": {\"label\": \"蓝色桶\", \"box_2d\": [400, 500, 700, 800]},\n"
+        "  \"response\": \"已定位到蓝色桶，将先移动至目标点，然后右转25.3度。请注意观察周围环境安全。\"\n"
+        "}\n"
+        "```\n\n"
+        "**功能示例2：原路返回**\n"
+        "用户说：“干得好，现在回来吧”\n"
+        "```json\n"
+        "{\n"
+        "  \"detection_required\": false,\n"
+        "  \"actions\": [{\"command\": \"return_to_start\"}],\n"
+        "  \"target_object\": null,\n"
+        "  \"response\": \"收到，正在执行原路返回指令。请确保返回路径通畅。\"\n"
+        "}\n"
+        "```\n"
         "重要提示: 绝对不要在JSON格式之外输出任何文本。"
     )
+
 def process_message_and_get_reply_openai(prompt, image_filepath=None, image_webpath=None, autonomous_mode=False):
     """
     处理用户输入、与LLM交互并返回结果的全新统一流程。
@@ -96,8 +117,7 @@ def handle_conversation_mode():
     return {"history": state.conversation_history, "is_muted": state.is_muted}
 
 def handle_autonomous_mode(user_content):
-    """处理自主移动模式，核心逻辑在此"""
-    # 构建专门用于获取JSON的请求
+    """处理自主移动模式（V3版：实现单句指令内的'原路返回'逻辑）"""
     messages_for_json = [
         {"role": "system", "content": get_autonomous_json_instructions()},
         {"role": "user", "content": user_content}
@@ -116,32 +136,55 @@ def handle_autonomous_mode(user_content):
         data = json.loads(content_str)
 
         final_reply_text = data.get("response", "好的，任务已收到。")
-        actions_to_execute = []
         action_result_summary = "无需移动。"
-
-        # 逻辑分支1: 需要检测图片来决定动作
+        
+        # --- 全新的“单句返回”核心逻辑 ---
+        
+        # 1. 提取所有初始路径动作（图像检测的 + 文本解析的）
+        initial_path = []
         if data.get("detection_required") and data.get("target_object"):
             print("--- [自主导航] 模式: 图像目标检测 ---")
             target = data["target_object"]
-            box_normalized = target.get("box_2d")
-            
-            # 使用图像坐标计算移动动作
-            calculated_actions = calculate_actions_from_box(box_normalized)
+            calculated_actions = calculate_actions_from_box(target.get("box_2d"))
             if calculated_actions:
-                actions_to_execute = calculated_actions
+                initial_path.extend(calculated_actions)
             else:
                 final_reply_text = f"已在图中定位到'{target.get('label', '目标')}'，但无法获取其空间坐标，无法移动。"
-
-        # 逻辑分支2: 根据LLM直接提供的动作指令移动
-        elif data.get("actions"):
-            print("--- [自主导航] 模式: 文本指令解析 ---")
-            actions_to_execute = data["actions"]
-
-        # 执行动作
-        if actions_to_execute:
-            action_result_summary = robot_control.execute_sequence(actions_to_execute)
         
-        # 组合最终回复
+        # 2. 从LLM返回的actions中分离出“前进路径”和“返回指令”
+        actions_from_llm = data.get("actions", [])
+        has_return_command = False
+        
+        for action in actions_from_llm:
+            if action.get("command") == "return_to_start":
+                has_return_command = True
+            else:
+                initial_path.append(action)
+
+        # 3. 如果有返回指令，则构造返回路径并合并
+        final_actions_to_execute = list(initial_path) # 复制初始路径
+        if has_return_command and initial_path:
+            print("--- [特殊指令] 检测到 'return_to_start'，正在构造返回路径 ---")
+            reversed_path = []
+            for action in reversed(initial_path):
+                cmd = action.get("command")
+                val = action.get("value", 0)
+                if cmd == "move_forward":
+                    reversed_path.append({"command": "move_backward", "value": val})
+                elif cmd == "move_backward":
+                    reversed_path.append({"command": "move_forward", "value": val})
+                elif cmd == "turn":
+                    reversed_path.append({"command": "turn", "value": -val})
+            
+            # 将返回路径追加到最终执行列表
+            final_actions_to_execute.extend(reversed_path)
+        
+        # --- 逻辑结束 ---
+
+        # 4. 执行最终构建好的完整动作序列
+        if final_actions_to_execute:
+            action_result_summary = robot_control.execute_sequence(final_actions_to_execute)
+        
         final_response_message = f"{final_reply_text} (执行结果: {action_result_summary})"
         
     except (Exception) as e:
@@ -149,11 +192,9 @@ def handle_autonomous_mode(user_content):
         final_response_message = f"在自主模式下处理时遇到错误: {e}"
         state.conversation_history.pop()
 
-    # 将最终结果告知用户
     assistant_message = {"role": "assistant", "content": final_response_message}
     state.conversation_history.append(assistant_message)
     if not state.is_muted:
-        # 我们只播报LLM生成的response部分，不播报括号里的执行结果
         text_to_speak = data.get("response", "指令已处理。") if 'data' in locals() else "指令已处理。"
         state.tts_thread = threading.Thread(target=speak_text_threaded, args=(text_to_speak,))
         state.tts_thread.start()

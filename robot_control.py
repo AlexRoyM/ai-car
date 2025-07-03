@@ -133,68 +133,112 @@ def _turn_task(angle_degrees: float):
     return f"已旋转{angle_degrees:.1f}度"
 
 # --- Tool Executor ---
+
+def _execute_actions_internal(actions: list):
+    """
+    【内部函数】只负责按顺序执行具体的物理动作，不处理锁和特殊指令。
+    """
+    tool_results = []
+    for i, action in enumerate(actions):
+        command = action.get("command")
+        value = action.get("value", 0)
+        print(f" 步骤 {i+1}/{len(actions)}: command={command}, value={value}")
+
+        if command == "move_forward":
+            value = max(min(value, config.MAX_MOVE_DISTANCE), 0)
+            result = _move_forward_task(value)
+            tool_results.append(result)
+        elif command == "move_backward":
+            value = max(min(abs(value), config.MAX_MOVE_DISTANCE), 0)
+            result = _move_forward_task(-value) 
+            tool_results.append(result)
+        elif command == "turn":
+            original_angle = value
+            if abs(original_angle) <= config.TURN_TOLERANCE_DEG:
+                result = f"转向角度 {original_angle:.1f}° 小于容忍值 {config.TURN_TOLERANCE_DEG}°，已跳过。"
+                print(f"  - {result}")
+                tool_results.append(result)
+                time.sleep(0.2)
+                continue 
+            angle_to_execute = max(min(original_angle, config.MAX_TURN_ANGLE), -config.MAX_TURN_ANGLE)
+            if abs(angle_to_execute) <= 5.0 * config.TURN_TOLERANCE_DEG:
+                print(f"  - 执行补偿转向: 目标角度 {angle_to_execute:.1f}°")
+                backward_angle = -math.copysign(10.0, angle_to_execute)
+                print(f"    - 补偿动作1: 反向转动 {backward_angle:.1f}°")
+                result1 = _turn_task(backward_angle)
+                time.sleep(0.2)
+                forward_angle = angle_to_execute + math.copysign(10.0, angle_to_execute)
+                print(f"    - 补偿动作2: 正向转动 {forward_angle:.1f}°")
+                result2 = _turn_task(forward_angle)
+                result = f"{result1}；{result2}"
+                tool_results.append(result)
+            else:
+                print(f"  - 执行常规转向: 目标角度 {angle_to_execute:.1f}°")
+                result = _turn_task(angle_to_execute)
+                tool_results.append(result)
+        else:
+            # 在这里我们忽略 'return_to_start' 因为它应该已经被外部函数处理了
+            if command != "return_to_start":
+                 tool_results.append(f"未知命令: {command}")
+        time.sleep(0.2)
+        
+    final_summary = "序列执行完毕: " + "；".join(tool_results)
+    print(final_summary)
+    return final_summary
+
+
 def execute_sequence(actions: list):
-    """工具执行器，由LLM调用"""
+    """
+    工具执行器 (V3版 - 简化版)
+    - 移除了处理'return_to_start'的逻辑，只负责执行给定的动作序列。
+    """
     if not state.ros_enabled or not state.car_control_lock.acquire(timeout=2):
         return "错误：无法获取小车控制权或ROS未启用。"
     
     print(f"开始执行动作序列，共 {len(actions)} 个动作...")
     tool_results = []
     try:
+        # 这个函数现在就是一个简单的循环执行器
         for i, action in enumerate(actions):
             command = action.get("command")
             value = action.get("value", 0)
             print(f" 步骤 {i+1}/{len(actions)}: command={command}, value={value}")
 
             if command == "move_forward":
-                # 使用config中的参数进行限制
                 value = max(min(value, config.MAX_MOVE_DISTANCE), 0)
                 result = _move_forward_task(value)
                 tool_results.append(result)
             elif command == "move_backward":
                 value = max(min(abs(value), config.MAX_MOVE_DISTANCE), 0)
-                result = _move_forward_task(-value) # 以后退方式调用
+                result = _move_forward_task(-value) 
                 tool_results.append(result)
             elif command == "turn":
                 original_angle = value
-
-                # 逻辑分支 1: 检查角度是否小于容忍值，若是则跳过
                 if abs(original_angle) <= config.TURN_TOLERANCE_DEG:
                     result = f"转向角度 {original_angle:.1f}° 小于容忍值 {config.TURN_TOLERANCE_DEG}°，已跳过。"
                     print(f"  - {result}")
                     tool_results.append(result)
                     time.sleep(0.2)
-                    continue # 直接进行下一个动作
-
-                # 应用最大角度限制
+                    continue 
                 angle_to_execute = max(min(original_angle, config.MAX_TURN_ANGLE), -config.MAX_TURN_ANGLE)
-
-                # 逻辑分支 2: 检查是否需要执行补偿动作
                 if abs(angle_to_execute) <= 5.0 * config.TURN_TOLERANCE_DEG:
                     print(f"  - 执行补偿转向: 目标角度 {angle_to_execute:.1f}°")
-                    
-                    # 补偿动作1: 反向转动10度
                     backward_angle = -math.copysign(10.0, angle_to_execute)
                     print(f"    - 补偿动作1: 反向转动 {backward_angle:.1f}°")
                     result1 = _turn_task(backward_angle)
                     time.sleep(0.2)
-
-                    # 补偿动作2: 正向转动 (目标角度 + 10度补偿)
                     forward_angle = angle_to_execute + math.copysign(10.0, angle_to_execute)
                     print(f"    - 补偿动作2: 正向转动 {forward_angle:.1f}°")
                     result2 = _turn_task(forward_angle)
-                    
                     result = f"{result1}；{result2}"
                     tool_results.append(result)
-                
-                # 逻辑分支 3: 执行常规转向 (角度较大时)
                 else:
                     print(f"  - 执行常规转向: 目标角度 {angle_to_execute:.1f}°")
                     result = _turn_task(angle_to_execute)
                     tool_results.append(result)
             else:
                 tool_results.append(f"未知命令: {command}")
-            time.sleep(0.2) # 动作间短暂延迟
+            time.sleep(0.2)
             
         final_summary = "序列执行完毕: " + "；".join(tool_results)
         print(final_summary)
@@ -203,10 +247,10 @@ def execute_sequence(actions: list):
         print(f"执行序列时出错: {e}")
         return f"执行序列时出错: {e}"
     finally:
-        # 确保动作结束后小车停止
         if state.ros_enabled:
             state.cmd_vel_pub.publish(Twist())
         state.car_control_lock.release()
+
 
 # 将可用的函数映射到一个字典，方便LLM处理器调用
 available_functions = {

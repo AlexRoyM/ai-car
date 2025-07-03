@@ -21,3 +21,5 @@ ros_enabled = False
 camera_handler = None
 cmd_vel_pub = None
 car_control_lock = threading.Lock()
+# --- 用于“原路返回”功能的动作记忆 ---
+last_executed_actions = []
